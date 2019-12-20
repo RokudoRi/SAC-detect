@@ -5,6 +5,7 @@ import enum
 import cv2
 import numpy as np
 
+OPENCV_VERSION = cv2.__version__.split(".")[0]
 
 class ShapeDetector:
     def __init__(self):
@@ -136,7 +137,12 @@ class Window(QMainWindow):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY)[1]
-        contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        if OPENCV_VERSION == "3":
+            image, contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        elif OPENCV_VERSION == "4":
+            contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        else:
+            raise Exception("Unsupported OpenCV version: " + str(OPENCV_VERSION))
         sd = ShapeDetector()
         for c in contours:
             shape = sd.detect(c)
