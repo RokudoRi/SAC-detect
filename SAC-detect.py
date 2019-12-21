@@ -1,11 +1,21 @@
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton
-from PyQt5.QtGui  import QPainter, QPen, QColor, QImage
+from PyQt5.QtGui  import QPainter, QPen, QColor, QImage, QPolygon
+from PyQt5.QtCore import QPoint
 import sys
 import enum
 import cv2
+import imutils
 import numpy as np
+from scipy.interpolate import splprep, splev
 
 OPENCV_VERSION = cv2.__version__.split(".")[0]
+
+class Shape(enum.Enum):
+    UNKNOWN  = 0
+    TRIANGLE = 1
+    SQUARE   = 2
+    PENTAGON = 3
+    CIRCLE   = 4
 
 class ShapeDetector:
     def __init__(self):
@@ -15,22 +25,22 @@ class ShapeDetector:
         peri = cv2.arcLength(c, True)
         approx = cv2.approxPolyDP(c, 0.04 * peri, True)
         alen = len(approx)
+        shape = Shape.UNKNOWN
         if alen == 3:
-            return "triangle"
+            shape = Shape.TRIANGLE
         elif alen == 4:
-            return "square"
+            shape = Shape.SQUARE
         elif alen == 5:
-            return "pentagon"
+            shape = Shape.PENTAGON
         elif alen > 5:
-            return "circle"
-        else:
-            return "unknown"
-
+            shape = Shape.CIRCLE
+        print(alen)
+        print(shape)
+        return (shape, approx)
 
 class State(enum.Enum):
     SHOW = 0
     DRAW = 1
-
 
 class Window(QMainWindow):
     def __init__(self):
@@ -45,9 +55,10 @@ class Window(QMainWindow):
         self.last_y = None
         self.state = State.SHOW
         self.initWindow()
-        self.overlayImage = QImage(self.width, self.height, QImage.Format_ARGB32)
+        self.overlayImage = QImage(self.width, self.height, QImage.Format_ARGB32_Premultiplied)
         self.mainImage = QImage(self.width, self.height, QImage.Format_RGB32)
-        self.drawShape()
+        self.clearOverlayImage()
+        self.clearMainImage()
 
     def initWindow(self):
         self.setWindowTitle(self.title)
@@ -98,18 +109,21 @@ class Window(QMainWindow):
         self.b = 0
         print('green')
 
-    def drawShape(self):
+    def clearOverlayImage(self):
         painter = QPainter()
         painter.begin(self.overlayImage)
-        pen = QPen()
-        pen.setWidth(8)
-        pen.setColor(QColor(0, 255, 0))
-        painter.setPen(pen)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 0))
+        painter.end()
+
+    def clearMainImage(self):
+        painter = QPainter()
+        painter.begin(self.mainImage)
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         painter.end()
 
+
     def mouseMoveEvent(self, event):
-        print("x: " + str(event.x()) + "; y: " + str(event.y()))
+        # print("x: " + str(event.x()) + "; y: " + str(event.y()))
         if self.last_x is None:
             self.last_x = event.x()
             self.last_y = event.y()
@@ -132,33 +146,59 @@ class Window(QMainWindow):
         self.last_y = event.y()
         self.state = State.DRAW
 
+    def smoothContour(self, contour):
+        x, y = contour.T
+        x = x.tolist()[0]
+        y = y.tolist()[0]
+        tck, u = splprep([x, y], u=None, s=5.0, per=1)
+        u_new = np.linspace(u.min(), u.max(), 25)
+        x_new, y_new = splev(u_new, tck, der=0)
+        res_array = [[[int(i[0]), int(i[1])]] for i in zip(x_new, y_new)]
+        return np.asarray(res_array, dtype=np.int32)
+
+
     def mouseReleaseEvent(self, event):
         img = self.qImageToMat(self.overlayImage)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY)[1]
         if OPENCV_VERSION == "3":
-            image, contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            image, contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         elif OPENCV_VERSION == "4":
             contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         else:
             raise Exception("Unsupported OpenCV version: " + str(OPENCV_VERSION))
+
         sd = ShapeDetector()
         for c in contours:
-            shape = sd.detect(c)
+            shape, approx = sd.detect(c)
             if shape == "unknown":
                 continue
             m = cv2.moments(c)
             if m["m00"] == 0.0:
                 continue
-            print(m)
+            # print(m)
             cx = int(m["m10"] / m["m00"])
             cy = int(m["m01"] / m["m00"])
-            cv2.drawContours(img, [c], -1, (0, 255, 0), 2)
-            cv2.putText(img, shape, (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            painter = QPainter()
+            pen = QPen()
 
-        height, width, channel = img.shape
-        self.mainImage = QImage(img.data, width, height, img.strides[0], QImage.Format_ARGB32)
+            painter.begin(self.mainImage)
+            pen.setWidth(8)
+            pen.setColor(QColor(0, 255, 0))
+            painter.setPen(pen)
+
+            if shape == Shape.CIRCLE:
+                painter.drawEllipse(cx, cy, 50, 50)
+            elif shape == Shape.SQUARE:
+                x, y, width, height = cv2.boundingRect(c)
+                painter.drawRect(cx, cy, 50, 50)
+            elif shape == Shape.TRIANGLE:
+                painter.drawPolygon(QPolygon(map(lambda x: QPoint(x[0][0], x[0][1]), approx)))
+
+            painter.end()
+
+        self.clearOverlayImage()
         self.state = State.SHOW
         self.repaint()
 
