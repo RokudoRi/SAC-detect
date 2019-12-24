@@ -10,6 +10,7 @@ from scipy.interpolate import splprep, splev
 
 OPENCV_VERSION = cv2.__version__.split(".")[0]
 
+
 class Shape(enum.Enum):
     UNKNOWN  = 0
     TRIANGLE = 1
@@ -17,13 +18,14 @@ class Shape(enum.Enum):
     PENTAGON = 3
     CIRCLE   = 4
 
+
 class ShapeDetector:
     def __init__(self):
         pass
 
     def detect(self, c):
         peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.04 * peri, True)
+        approx = cv2.approxPolyDP(c, 0.03 * peri, True)
         alen = len(approx)
         shape = Shape.UNKNOWN
         if alen == 3:
@@ -38,9 +40,11 @@ class ShapeDetector:
         print(shape)
         return (shape, approx)
 
+
 class State(enum.Enum):
     SHOW = 0
     DRAW = 1
+
 
 class Window(QMainWindow):
     def __init__(self):
@@ -121,9 +125,7 @@ class Window(QMainWindow):
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         painter.end()
 
-
     def mouseMoveEvent(self, event):
-        # print("x: " + str(event.x()) + "; y: " + str(event.y()))
         if self.last_x is None:
             self.last_x = event.x()
             self.last_y = event.y()
@@ -156,12 +158,12 @@ class Window(QMainWindow):
         res_array = [[[int(i[0]), int(i[1])]] for i in zip(x_new, y_new)]
         return np.asarray(res_array, dtype=np.int32)
 
-
     def mouseReleaseEvent(self, event):
         img = self.qImageToMat(self.overlayImage)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY)[1]
+        thresh = cv2.threshold(blurred, 1, 255, cv2.THRESH_BINARY)[1]
+
         if OPENCV_VERSION == "3":
             image, contours, hier = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         elif OPENCV_VERSION == "4":
@@ -185,13 +187,13 @@ class Window(QMainWindow):
 
             painter.begin(self.mainImage)
             pen.setWidth(8)
-            pen.setColor(QColor(0, 255, 0))
+            pen.setColor(QColor(self.r, self.g, self.b))
             painter.setPen(pen)
 
             if shape == Shape.CIRCLE:
                 painter.drawEllipse(cx, cy, 50, 50)
             elif shape == Shape.SQUARE:
-                x, y, width, height = cv2.boundingRect(c)
+                #x, y, width, height = cv2.boundingRect(c)
                 painter.drawRect(cx, cy, 50, 50)
             elif shape == Shape.TRIANGLE:
                 painter.drawPolygon(QPolygon(map(lambda x: QPoint(x[0][0], x[0][1]), approx)))
@@ -221,6 +223,7 @@ class Window(QMainWindow):
             painter.drawImage(0, 0, self.overlayImage)
 
         painter.end()
+
 
 def main(argv):
     app = QApplication(argv)
